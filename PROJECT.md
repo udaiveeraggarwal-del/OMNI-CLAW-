@@ -135,7 +135,7 @@ Every requirement from the initial request, additions, and survey reports is inv
 ## Code Layout
 
 ```
-C:\Users\udaiv\.gemini\antigravity\scratch\omniagent\
+[local Antigravity workspace]\
 ├── omniagent/
 │   ├── __init__.py
 │   ├── core/                           # M1: Core Engine & LLM Abstraction

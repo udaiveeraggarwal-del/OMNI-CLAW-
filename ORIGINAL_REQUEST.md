@@ -4,7 +4,7 @@
 
 Build "OmniAgent," a universal AI agentic framework inspired by DeepSeek/Claude Code/OpenClaw distillation, supporting multiple LLMs (OpenAI, Anthropic, Gemini, etc.), multi-step reasoning, and browser/API tools for full-stack autonomous web operations. This must be the complete production-ready framework with all specified domain skills (Odoo, Social Media, SEO). Use a standard full team.
 
-Working directory: C:\Users\udaiv\.gemini\antigravity\scratch\omniagent
+Working directory: [local Antigravity workspace]
 Integrity mode: development
 
 ## Requirements
@@ -59,14 +59,14 @@ User update: Maximize the depth of the agentic capabilities (advanced reasoning,
 
 URGENT REQUIREMENT UPDATE: The user has set up a shared GitHub repository for cross-model collaboration with OpenAI Codex. 
 
-Please immediately migrate your working directory and all future file writes/reads from `C:\Users\udaiv\.gemini\antigravity\scratch\omniagent` to the new shared repository at `C:\Users\udaiv\OneDrive\Documents\GitHub\OMNI-CLAW-`. 
+Please immediately migrate your working directory and all future file writes/reads from `[local Antigravity workspace]` to the new shared repository at `[shared repository]`. 
 
 Ensure all milestone trackers, test runners, and coding sub-agents are updated with this new root directory immediately.
 
 
 ## 2026-10-04T09:10:56Z
 
-URGENT REMINDER: Ensure the Project Orchestrator and all active workers have actually shifted their working directory to `C:\Users\udaiv\OneDrive\Documents\GitHub\OMNI-CLAW-`. 
+URGENT REMINDER: Ensure the Project Orchestrator and all active workers have actually shifted their working directory to `[shared repository]`. 
 
 The latest progress report stated it was "queued for synchronization upon milestone packaging", but the user is actively working with Codex in the GitHub folder *right now*. Ensure all M2 code and subsequent M3/M4 generation is written directly to the GitHub folder immediately to prevent desync.
 
