@@ -20,3 +20,5 @@ dist/
 node_modules/
 
 .env
+
+scripts/live_tests/

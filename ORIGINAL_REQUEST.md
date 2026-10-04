@@ -86,3 +86,43 @@ URGENT COLLABORATION UPDATE: The external OpenAI Codex agent has officially clai
 URGENT MANDATE FROM USER: The user expects this framework to be a "top tier model which can change the world". 
 
 Ensure that Milestone 4 (Visual Workflow Builder) and Milestone 5 (Vercel Integration) are engineered to the absolute highest standard of modern software architecture. Accept zero compromises on performance, UX polish, or reliability. Push the absolute limits of current agentic system design.
+
+
+## 2026-10-04T13:52:04Z
+
+# Teamwork Project Prompt — Draft
+
+> Status: Ready for launch — awaiting user approval
+> Goal: Craft prompt → get user approval → delegate to teamwork_preview
+> Requested team: Full Team
+
+Complete the OmniAgent framework to a full production state. This involves moving M2, M3, M4, and M5 from their current foundational/shell status to fully integrated, live operational systems.
+
+Working directory: C:\Users\udaiv\OneDrive\Documents\GitHub\OMNI-CLAW-
+Integrity mode: development
+
+## Requirements
+
+### R1. M2 Secure Network Layer Hardening
+The managed SOCKS5 proxy must be upgraded to a real, bounded, full-duplex tunnel with explicit destination controls (ACLs). Do not treat or describe it as providing Tor-level anonymity.
+
+### R2. M4 Visual Workflow Integration
+The current UI is a visual shell. It must be wired to backend serialization (JSON/YAML), implement save/load functionality, and the `WorkflowRunner` must actually execute the deployed graph rather than reporting automatic success.
+
+### R3. Autonomous Social Operations & Video Publishing
+Port the logic from `auto-social-content-engine` and `autonomous-video-publisher` directly into OMNI-CLAW's M3 skill ecosystem. Move the Instagram and YouTube skills from drafting boundaries to complete real-account publishing, automated trend scanning, video scripting, and rendering pipelines.
+
+### R4. M5 Final Integration & Test Suite Fixes
+Fix all failing imports and unit tests, ensure the test suite runs flawlessly against the latest commit, and guarantee no mock data is returned when live mode is active.
+
+## Acceptance Criteria
+
+### Security & Tests
+- [ ] `test_socks5_bidirectional_data_tunnel` passes against a local loopback fixture without hitting external plaintext endpoints.
+- [ ] The full unit test suite runs with 0 failures at the latest commit.
+
+### Workflow UI
+- [ ] A user can construct a graph in the UI, hit "Run", and the backend `WorkflowRunner` actually executes the specific tools in the graph.
+
+### Agent-as-Judge Evaluation
+- [ ] An independent Agent-as-Judge script (`evaluator.py`) executes against the newly ported Social and Video publishing skills and scores them 100/100 based on the presence of end-to-end publishing capabilities.
