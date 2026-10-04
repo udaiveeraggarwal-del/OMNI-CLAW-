@@ -10,8 +10,8 @@ from omniagent.core.models import (
     TokenUsage,
     LLMResponse,
     ToolResult,
-    NetworkSecurityContext,
 )
+from omniagent.security.manager import NetworkSecurityContext
 from omniagent.core.providers import (
     BaseLLMProvider,
     OpenAIProvider,

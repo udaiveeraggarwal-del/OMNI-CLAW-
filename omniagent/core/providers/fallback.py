@@ -32,10 +32,38 @@ class FallbackProviderChain(BaseLLMProvider):
         for provider in self.providers:
             provider.set_security_context(ctx)
 
+    @property
+    def provider_name(self) -> str:
+        return "fallback_chain"
+
+    def format_tools(self, tools: List[ToolDefinition]) -> Any:
+        if self.providers:
+            return self.providers[0].format_tools(tools)
+        return tools
+
+    def normalize_request(
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolDefinition]] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self.providers:
+            return self.providers[0].normalize_request(messages, tools, temperature, max_tokens, **kwargs)
+        return {}
+
+    def normalize_response(self, raw_response: Dict[str, Any]) -> LLMResponse:
+        if self.providers:
+            return self.providers[0].normalize_response(raw_response)
+        raise NotImplementedError()
+
     def generate(
         self,
         messages: List[Message],
         tools: Optional[List[ToolDefinition]] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
         **kwargs: Any
     ) -> LLMResponse:
         
@@ -43,7 +71,7 @@ class FallbackProviderChain(BaseLLMProvider):
         for i, provider in enumerate(self.providers):
             try:
                 # Attempt to generate
-                return provider.generate(messages, tools, **kwargs)
+                return provider.generate(messages, tools, temperature=temperature, max_tokens=max_tokens, **kwargs)
             except Exception as e:
                 err_str = str(e).lower()
                 if "429" in err_str or "rate limit" in err_str or "quota" in err_str or "resource_exhausted" in err_str:
@@ -56,11 +84,3 @@ class FallbackProviderChain(BaseLLMProvider):
                     continue
                     
         raise ProviderRateLimitError(f"All providers in the fallback chain failed. Last error: {last_error}")
-
-    def stream(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any
-    ) -> Any:
-        raise NotImplementedError("Streaming is currently not supported in FallbackProviderChain")
