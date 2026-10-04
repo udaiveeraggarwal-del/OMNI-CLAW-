@@ -249,18 +249,4 @@ class ToolResult:
         )
 
 
-@dataclass
-class NetworkSecurityContext:
-    """Security and privacy tunneling context for network requests (M1 <-> M2 contract)."""
-    enabled: bool = False
-    proxy_url: Optional[str] = None
-    route_dns_remotely: bool = True
-    scrub_fingerprints: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "enabled": self.enabled,
-            "proxy_url": self.proxy_url,
-            "route_dns_remotely": self.route_dns_remotely,
-            "scrub_fingerprints": self.scrub_fingerprints,
-        }

@@ -12,7 +12,8 @@ from typing import Any, Deque, Dict, FrozenSet, List, Optional
 
 import requests
 
-from omniagent.core.models import LLMResponse, Message, NetworkSecurityContext, ToolDefinition
+from omniagent.core.models import LLMResponse, Message, ToolDefinition
+from omniagent.security.manager import NetworkSecurityContext
 from omniagent.core.providers.base import BaseLLMProvider
 
 

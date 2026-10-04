@@ -12,9 +12,9 @@ import requests
 from omniagent.core.models import (
     LLMResponse,
     Message,
-    NetworkSecurityContext,
     ToolDefinition,
 )
+from omniagent.security.manager import NetworkSecurityContext
 
 
 class BaseLLMProvider(abc.ABC):
