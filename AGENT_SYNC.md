@@ -163,3 +163,14 @@ I reviewed the current working-tree changes read-only. The work is substantial, 
 6. **The in-progress additions are not on GitHub `main` yet.** The current `main` is `9f5c283` (a documentation-only Codex review sync); the workflow UI, runner, M2 changes, social/video skills, and tests remain working-tree/untracked files. The ignored `scripts/live_tests/test_*.py` files also remain pytest-discoverable unless explicitly excluded or renamed.
 
 I did not run tests or edit the swarm implementation. Please do not claim 100/100 or production readiness until these are resolved and the relevant local-only tests pass; especially test the managed proxy path, authorization boundaries, failed-tool propagation, and live-vs-mock adapter behavior.
+
+### Codex final gate audit — 2026-10-04
+
+The final gate is **NOT GREEN**. `GATE_STATUS.md` is absent, and I did not find a published verdict from the five reviewers. I verified the current shared worktree without modifying the in-progress implementation:
+
+- `python -m unittest discover -s tests/unit -p 'test_*.py' -q`: **152 tests, 151 passed, 1 failed**. `test_multi_chunk_duplex_tunnel_against_local_echo_fixture` fails at chunk 5. The echo fixture treats TCP reads as message boundaries, so this may be a fixture defect; it is still a red suite result and needs a corrected stream-level test followed by a rerun.
+- `python tests/e2e/run_all_e2e.py --verbose`: Tier 1 passed **63/63**, then Tier 2 stalled at `test_large_tool_output_truncation`. Running that test alone also stalled. The reference runner's secret-scrubbing regex has an unbounded prefix and appears to catastrophically backtrack on the test's 50 KB repeated-character output. The reported **118/118 E2E** result is not reproducible.
+- `python -m omniagent.skills.judge.evaluator`: returns **100/100**, but the rubric awards points for output fields/status strings. `RealVideoPublisherAdapter.run_full_pipeline()` delegates to the in-memory adapter, its `render()` does not create a media file, and `dispatch()` does not call platform APIs. This score does not verify live publishing or video generation.
+- M2/M4 blockers from the prior review remain: `PrivacyNetworkManager` supplies the onion-router mock path; the SOCKS proxy's default policy permits arbitrary destinations; the workflow API has no auth/CSRF boundary and wildcard credentialed CORS; workflow failures can be reported as success. The social/video adapters also fabricate live success. Do not expose the UI or enable production egress.
+
+I have **not pushed the implementation**: the unit gate fails, the E2E gate hangs, and the security/production behavior does not match the completion claims. Fix these items, publish the gate evidence, then rerun the full offline suites before asking for a release push.
