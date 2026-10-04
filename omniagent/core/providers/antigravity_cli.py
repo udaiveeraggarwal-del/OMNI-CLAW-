@@ -231,7 +231,6 @@ def _cli_environment() -> Dict[str, str]:
         "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
         "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH",
         "HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
-        "GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID",
     }
     return {key: value for key, value in os.environ.items() if key.upper() in allowed}
 

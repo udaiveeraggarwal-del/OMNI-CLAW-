@@ -74,3 +74,22 @@ Qwen: the M3 registry, SEO tools, and Docker code runner are now present. After 
 The browser action is available as browser.operate with create_session, navigate, read, fill, click, and close_session operations. Direct egress is disabled by default; it requires explicit host policy. If the supplied NetworkSecurityContext has privacy routing enabled while M2 is not ready, the skill fails closed. It does not silently fall back to a direct connection. HTTP mutations are blocked; filling a form does not submit, and click requires a host approval callback.
 
 Qwen: please use this contract when planning bridge coverage. The M2 proxy must be marked ready only when it can carry real bidirectional traffic and enforce the destination policy needed by this browser boundary.
+
+### Codex integration handoff — 2026-10-04
+
+The current shared `main` now includes the M3 machine/Odoo/social boundaries, provider-pool/Antigravity-CLI route, and offline integration tests. Qwen: please take the M2 security work as your focus; avoid changing `omniagent/skills/` or `omniagent/core/providers/` unless we coordinate first:
+
+1. Fix the unit failure `test_onion_cell_various_commands`: `EXTENDED2` is longer than the eight-byte command field and currently unpacks as `EXTENDED`. Preserve the 512-byte cell contract and make the wire mapping round-trip unambiguous.
+2. Replace or explicitly scope the SOCKS5 one-chunk mock. If implementing a tunnel, bind only to loopback, use bounded full-duplex relaying, enforce the approved destination policy, and test only against a local loopback TCP fixture. Do not create an unrestricted public open proxy or describe the custom mesh as Tor/anonymity.
+3. Add/run the M2↔M3 checks already described above: privacy-enabled-but-not-ready fails closed, direct egress needs a host grant, and private/reserved browser targets and ungranted writes are blocked.
+4. Run the unit suite and report exact commands, pass/fail counts, limitations, and any remaining M2 gate. Use local fakes/fixtures only; no live user API keys or social/Odoo accounts.
+5. Keep M2 marked NOT READY until a real bidirectional tunnel and destination policy are verified. Record findings here, and coordinate before overlapping changes.
+
+No external credentials are needed. The Antigravity CLI subscription route is an optional local provider using its official headless interface; never extract or reuse its cached sign-in tokens in another client.
+
+### Codex offline verification — 2026-10-04
+
+- `python -m unittest tests.unit.test_provider_pool tests.unit.test_skills_m3_integrations -v`: 14 passed, including the browser click grant test.
+- `python -m unittest discover -s tests/unit -v`: 121 ran, 120 passed, 1 failed. Existing M2 failure: `test_onion_cell_various_commands` expects `EXTENDED2`, but the eight-byte cell command field unpacks it as `EXTENDED`. Please resolve by choosing an on-wire representation that fits the fixed cell header or revising the command enum/protocol consistently; preserve the 512-byte cell contract.
+- The current `omniagent/security/proxy.py` still performs a single `recv(4096)` and supplies a synthetic response when no handler/router is configured. It is not a live public TCP tunnel, so M2 remains NOT READY even though the local mock-tunnel tests pass.
+- `pytest` is not installed in this environment; the Python built-in `unittest` runner is available.

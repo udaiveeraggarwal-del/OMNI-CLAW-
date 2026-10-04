@@ -63,8 +63,8 @@ Every requirement from the initial request, additions, and survey reports is inv
 | 15 | Canonical Skill Schema Contract | Formal JSON Schema (`omni_skill_schema.json`) defining actions, parameters, authentication. | M3 | Survey 3 (R3) |
 | 16 | Browser Operate Skill | Browser automation supporting Playwright (Chrome/Edge channels) and headless DOM fallback with SSRF blocklist. | M3 | Survey 3 (R3 & Acceptance) |
 | 17 | Code Runner Skill | Isolated sandbox executing Python, JS, and Shell with tempdir, secret scrubbing, and timeouts. | M3 | Survey 3 (R3 & Acceptance) |
-| 18 | Odoo Builder Skill | Odoo website page creation and eCommerce product management with XML-RPC & Mock connector. | M3 | Survey 3 (R3) |
-| 19 | Social Media Skill | Instagram publishing & analytics, YouTube structured script generation, metadata & analytics. | M3 | Survey 3 (R3) |
+| 18 | Odoo Builder Skill | Odoo 19 JSON-2 connector with a narrow allowlist, page/CRM/product actions, mock client, and host-gated writes. | M3 | Survey 3 (R3) |
+| 19 | Social Media Skill | Draft preparation, metrics analysis, and grant/approval-gated injected adapters for publishing and analytics. | M3 | Survey 3 (R3) |
 | 20 | SEO Optimizer Skill | Technical page audits, health scoring (0-100), keyword density, and Schema.org JSON-LD generation. | M3 | Survey 3 (R3) |
 | 21 | Agent-as-Judge Evaluator | 100-point rubric evaluator validating Odoo and Social Media skill schema compliance. | M3 | Survey 3 (R3 Acceptance) |
 | 22 | Interactive Canvas & Grid Snapping | Infinite pan/zoom canvas with grid snapping guides and DOM node cards. | M4 | Survey 2 (R2) |
@@ -86,7 +86,7 @@ Every requirement from the initial request, additions, and survey reports is inv
 |---|------|-------|-------------|--------|
 | M1 | Core Engine & LLM Abstraction | Canonical models, OpenAI/Anthropic/Gemini/Mock providers, state store, memory, multi-step planner, tool router. | none | DONE (71 unit tests passed, 118 E2E tests passed, Gate PASSED) |
 | M2 | Privacy & Security Network Protocols | Cryptographic primitives (AEAD, ECDH), Tor 3-hop onion router, loopback SOCKS5 gateway, DNS leak protection, fingerprint scrubber. | M1 | IN_PROGRESS (worker_m2: 5c82058f-1a3a-4c48-a8ec-1007414d3a58) |
-| M3 | Pre-built Skill Ecosystem | `browser_operate`, safe `code_runner`, `odoo_builder` (XML-RPC/Mock), `social_media` (Instagram/YouTube), `seo_optimizer`, Agent-as-Judge evaluation. | M1 | IN_PROGRESS (skill registry, SEO tools, Docker code runner) |
+| M3 | Pre-built Skill Ecosystem | `browser_operate`, safe `code_runner`, Odoo JSON-2/Mock, social adapter boundary, `seo_optimizer`, machine capability grants. | M1 | IN_PROGRESS (M3 skills implemented; integration coverage and UI/real account adapters remain) |
 | M4 | Visual Workflow Builder UI | Embedded web application, canvas drag-and-drop, SVG bezier wires, JSON/YAML serialization, API key modal, deployment engine, Vercel serverless entry (`api/index.py`, `vercel.json`), Playwright E2E tests. | M1, M3 | PLANNED |
 | M5 | Integrated System, Distillation & Hardening | Cross-layer integration, architectural distillation synthesis, Vercel deployment verification, passing 100% of E2E test suite (Tiers 1-4), adversarial hardening (Tier 5). | M1, M2, M3, M4 | PLANNED |
 
@@ -108,8 +108,8 @@ Every requirement from the initial request, additions, and survey reports is inv
 - Each skill package exports a class inheriting `BaseTool` or registering its actions with `ToolRegistry`.
 
 ### M2 ↔ M3 (Privacy Network ↔ Web Skills)
-- `browser_operate` receives `--proxy-server=socks5://127.0.0.1:<port>` when privacy is enabled.
-- Web scrapers and API clients in `seo_optimizer` and `social_media` utilize `NetworkSecurityContext.create_session()`.
+- Browser and Odoo requests block privacy-routed traffic until M2 reports the real tunnel as ready; neither silently falls back to direct egress.
+- Direct egress remains host-controlled and disabled by default. Network-layer egress filtering is still needed to mitigate DNS rebinding.
 
 ### M1/M3 ↔ M4 (Core & Skills ↔ Visual Workflow Builder)
 - Workflow JSON/YAML Schema:
@@ -219,4 +219,8 @@ Every requirement from the initial request, additions, and survey reports is inv
 - Added an offline SEO HTML audit and reviewable metadata / WebPage JSON-LD draft. These tools do not fetch pages or publish edits.
 - Added a Python and JavaScript code runner that fails closed without Docker and uses no network, a read-only root, reduced privileges, resource limits, and capped output.
 - Added a Playwright browser action with ephemeral contexts, request restrictions, private-address checks, bounded session/read sizes, and approval-gated clicks. Direct egress is disabled by default; proxy egress remains gated on M2 readiness.
-- Odoo and social-media connectors, and judge evaluation remain unimplemented.
+- Added expiring host-issued capability grants for scoped filesystem/process/UI work; desktop UI execution requires an injected host backend.
+- Added a narrow Odoo 19 JSON-2 client plus page, CRM, and product tools. JSON-2 plan eligibility varies; configure a supported Odoo account and user API key.
+- Added social post drafts, metrics analysis, and approval/grant-gated publisher/analytics adapter interfaces. Instagram/YouTube account adapters are not bundled.
+- Added provider-pool fallback on explicit quota/rate-limit failures, with cost-tier opt-in, local RPM/day ceilings, cooldowns, and status output that omits credentials. Added a separate official Antigravity CLI route for users authenticated in that CLI.
+- M2 proxy integration remains gated until a real bidirectional tunnel is verified. This is an MVP and does not offer anonymous/untrackable network access.
