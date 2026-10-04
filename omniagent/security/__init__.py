@@ -56,6 +56,7 @@ from omniagent.security.manager import (
     NetworkSecurityContext,
     PrivacyMode,
 )
+from omniagent.security.capabilities import HostCapabilityGrant
 
 __all__ = [
     # Crypto
@@ -94,4 +95,5 @@ __all__ = [
     "PrivacyNetworkManager",
     "NetworkSecurityContext",
     "PrivacyMode",
+    "HostCapabilityGrant",
 ]

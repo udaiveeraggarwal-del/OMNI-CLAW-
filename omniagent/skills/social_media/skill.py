@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol
 from omniagent.core.models import ToolResult
 from omniagent.core.router import BaseTool
 from omniagent.skills.base import BaseSkill
+from omniagent.security.capabilities import HostCapabilityGrant
 
 
 class SocialConnectorError(RuntimeError):
@@ -90,10 +91,12 @@ class SocialActionTool(BaseTool):
         action: str,
         adapter: Optional[SocialPlatformAdapter],
         approval_callback: Optional[Callable[[Dict[str, Any]], bool]],
+        capability_grant: Optional[HostCapabilityGrant],
     ) -> None:
         self.action = action
         self.adapter = adapter
         self.approval_callback = approval_callback
+        self.capability_grant = capability_grant
 
     @property
     def name(self) -> str:
@@ -140,21 +143,24 @@ class SocialActionTool(BaseTool):
         try:
             platform = kwargs["platform"]
             if self.action == "analytics":
+                if self.capability_grant is not None and not self.capability_grant.allows("social.analytics"):
+                    raise SocialConnectorError("The host did not grant social.analytics access.")
                 output = self.adapter.analytics(platform, kwargs["post_id"])
                 return ToolResult(success=True, output=output)
 
             post = _validate_draft(platform, kwargs["post"])
             if self.action == "schedule":
                 publish_at = _validate_future_time(kwargs["publish_at"])
-            if self.approval_callback is None:
-                raise SocialConnectorError("Publishing is disabled until the host provides an approval callback.")
+            can_act = bool(self.capability_grant and self.capability_grant.allows("social.publish"))
+            if not can_act and self.approval_callback is None:
+                raise SocialConnectorError("Publishing requires the host to grant social.publish or provide an approval callback.")
             approval = {
                 "action": self.name,
                 "platform": platform,
                 "post": post,
                 "publish_at": publish_at if self.action == "schedule" else None,
             }
-            if not self.approval_callback(approval):
+            if not can_act and not self.approval_callback(approval):
                 raise SocialConnectorError("The social publishing action was not approved.")
             if self.action == "schedule":
                 output = self.adapter.schedule(platform, post, publish_at)
@@ -254,9 +260,11 @@ class SocialMediaSkill(BaseSkill):
         self,
         adapter: Optional[SocialPlatformAdapter] = None,
         approval_callback: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        capability_grant: Optional[HostCapabilityGrant] = None,
     ) -> None:
         self.adapter = adapter
         self.approval_callback = approval_callback
+        self.capability_grant = capability_grant
 
     @property
     def skill_id(self) -> str:
@@ -273,9 +281,8 @@ class SocialMediaSkill(BaseSkill):
     def get_tools(self) -> List[BaseTool]:
         return [
             PreparePostTool(),
-            SocialActionTool("publish", self.adapter, self.approval_callback),
-            SocialActionTool("schedule", self.adapter, self.approval_callback),
-            SocialActionTool("analytics", self.adapter, self.approval_callback),
+            SocialActionTool("publish", self.adapter, self.approval_callback, self.capability_grant),
+            SocialActionTool("schedule", self.adapter, self.approval_callback, self.capability_grant),
+            SocialActionTool("analytics", self.adapter, self.approval_callback, self.capability_grant),
             AnalyzeMetricsTool(),
         ]
-

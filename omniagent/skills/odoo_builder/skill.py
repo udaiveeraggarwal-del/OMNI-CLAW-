@@ -19,6 +19,7 @@ import requests
 from omniagent.core.models import ToolResult
 from omniagent.core.router import BaseTool
 from omniagent.skills.base import BaseSkill
+from omniagent.security.capabilities import HostCapabilityGrant
 
 
 class OdooConnectorError(RuntimeError):
@@ -29,6 +30,8 @@ class OdooApiClient(Protocol):
     def list_pages(self, limit: int = 20) -> List[Dict[str, Any]]: ...
     def search_leads(self, query: str, limit: int = 20) -> List[Dict[str, Any]]: ...
     def create_lead(self, values: Dict[str, str]) -> Any: ...
+    def create_page(self, title: str, url: str, sections: List[Dict[str, str]], summary: str, published: bool) -> Any: ...
+    def create_product(self, name: str, price: float, description: str, published: bool) -> Any: ...
 
 
 class OdooJson2Client:
@@ -43,6 +46,8 @@ class OdooJson2Client:
         ("website.page", "search_read"),
         ("crm.lead", "search_read"),
         ("crm.lead", "create"),
+        ("website.page", "create"),
+        ("product.template", "create"),
     }
 
     def __init__(
@@ -204,7 +209,53 @@ class OdooJson2Client:
                 for key, value in values.items()}
         if not vals.get("name", "").strip():
             raise ValueError("A lead name is required.")
-        result = self._call("crm.lead", "create", {"vals": vals})
+        result = self._call("crm.lead", "create", {"vals_list": [vals]})
+        return _created_id(result)
+
+    def create_page(
+        self,
+        title: str,
+        url: str,
+        sections: List[Dict[str, str]],
+        summary: str = "",
+        published: bool = False,
+    ) -> Any:
+        title = _bounded_text(title, "title", 160).strip()
+        url = _bounded_text(url, "url", 256).strip()
+        summary = _bounded_text(summary, "summary", 1000).strip()
+        if not title or not re.fullmatch(r"/[A-Za-z0-9/_-]{1,240}", url) or "//" in url:
+            raise ValueError("title or relative website URL is invalid.")
+        page_html = _build_safe_page_html(title, summary, sections)
+        key = f"omniagent.generated_{re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:60]}_{__import__('uuid').uuid4().hex[:10]}"
+        # Odoo 19 docs define website.page records using key, url, type, arch,
+        # and is_published. Tenant-specific custom fields are intentionally omitted.
+        result = self._call("website.page", "create", {"vals_list": [{
+            "name": title,
+            "is_published": bool(published),
+            "key": key,
+            "url": url,
+            "type": "qweb",
+            "arch": (
+                f'<t t-name="{key}"><t t-call="website.layout">'
+                f'<div id="wrap" class="oe_structure">{page_html}</div>'
+                "</t></t>"
+            ),
+        }]})
+        return _created_id(result)
+
+    def create_product(self, name: str, price: float, description: str = "", published: bool = False) -> Any:
+        name = _bounded_text(name, "name", 256).strip()
+        description = _bounded_text(description, "description", 4000)
+        if not name or isinstance(price, bool) or not isinstance(price, (int, float)) or not 0 <= price <= 1_000_000_000:
+            raise ValueError("product name or price is invalid.")
+        vals: Dict[str, Any] = {"name": name, "list_price": float(price), "is_published": bool(published)}
+        if description:
+            vals["description_sale"] = description
+        result = self._call("product.template", "create", {"vals_list": [vals]})
+        return _created_id(result)
+
+
+def _created_id(result: Any) -> Any:
         if isinstance(result, (str, int)) and not isinstance(result, bool):
             return result
         if isinstance(result, list) and len(result) == 1:
@@ -268,20 +319,10 @@ class WebsiteDraftTool(BaseTool):
             sections = kwargs["sections"]
             if not title or len(sections) > 12:
                 raise ValueError("A title and 1-12 page sections are required.")
-            escaped_title = html.escape(title)
-            parts = [f"<main><h1>{escaped_title}</h1>"]
-            if summary:
-                parts.append(f"<p>{html.escape(summary)}</p>")
-            for section in sections:
-                parts.append(
-                    f"<section><h2>{html.escape(section['heading'])}</h2>"
-                    f"<p>{html.escape(section['body']).replace(chr(10), '<br>')}</p></section>"
-                )
-            parts.append("</main>")
             return ToolResult(success=True, output={
                 "title": title,
                 "meta_description": summary[:320],
-                "html": "".join(parts),
+                "html": _build_safe_page_html(title, summary, sections),
                 "published": False,
                 "note": "Draft only. Review and import it through the Odoo Website editor.",
             })
@@ -295,17 +336,21 @@ class OdooActionTool(BaseTool):
         action: str,
         client: Optional[OdooApiClient],
         approval_callback: Optional[Callable[[Dict[str, Any]], bool]],
+        capability_grant: Optional[HostCapabilityGrant],
     ) -> None:
         self.action = action
         self.client = client
         self.approval_callback = approval_callback
+        self.capability_grant = capability_grant
 
     @property
     def name(self) -> str:
         return {
             "list_pages": "odoo.website_list_pages",
             "search_leads": "odoo.crm_search_leads",
-            "create_lead": "odoo.crm_create_lead",
+        "create_lead": "odoo.crm_create_lead",
+        "create_page": "odoo.website_create_page",
+        "create_product": "odoo.product_create",
         }[self.action]
 
     @property
@@ -313,7 +358,9 @@ class OdooActionTool(BaseTool):
         return {
             "list_pages": "List existing Odoo website pages; this action is read-only.",
             "search_leads": "Search Odoo CRM leads by name, email, or phone; this action is read-only.",
-            "create_lead": "Create one CRM lead after a host-provided approval callback approves the exact values.",
+        "create_lead": "Create one CRM lead after a host-provided approval callback approves the exact values.",
+        "create_page": "Create an Odoo website page with sanitized content; the host grant controls whether it is published.",
+        "create_product": "Create an Odoo product template and optionally publish it after host authorization.",
         }[self.action]
 
     @property
@@ -327,7 +374,7 @@ class OdooActionTool(BaseTool):
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50},
             }
             required = ["query"]
-        else:
+        elif self.action == "create_lead":
             properties = {
                 "name": {"type": "string", "minLength": 1, "maxLength": 320},
                 "contact_name": {"type": "string", "maxLength": 320},
@@ -336,6 +383,23 @@ class OdooActionTool(BaseTool):
                 "description": {"type": "string", "maxLength": 4000},
             }
             required = ["name"]
+        elif self.action == "create_page":
+            properties = {
+                "title": {"type": "string", "minLength": 1, "maxLength": 160},
+                "url": {"type": "string", "pattern": "^/[A-Za-z0-9/_-]{1,240}$", "maxLength": 256},
+                "summary": {"type": "string", "maxLength": 1000},
+                "sections": WebsiteDraftTool().parameters_schema["properties"]["sections"],
+                "published": {"type": "boolean"},
+            }
+            required = ["title", "url", "sections"]
+        else:
+            properties = {
+                "name": {"type": "string", "minLength": 1, "maxLength": 256},
+                "price": {"type": "number", "minimum": 0, "maximum": 1000000000},
+                "description": {"type": "string", "maxLength": 4000},
+                "published": {"type": "boolean"},
+            }
+            required = ["name", "price"]
         return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
 
     def execute(self, **kwargs: Any) -> ToolResult:
@@ -346,13 +410,36 @@ class OdooActionTool(BaseTool):
                 output = self.client.list_pages(kwargs.get("limit", 20))
             elif self.action == "search_leads":
                 output = self.client.search_leads(kwargs["query"], kwargs.get("limit", 20))
-            else:
+            elif self.action == "create_lead":
                 values = {key: value for key, value in kwargs.items() if value is not None}
-                if self.approval_callback is None:
-                    raise OdooConnectorError("CRM writes are disabled until the host provides an approval callback.")
-                if not self.approval_callback({"action": self.name, "values": values}):
+                can_act = bool(self.capability_grant and self.capability_grant.allows("odoo.crm.write"))
+                if not can_act and self.approval_callback is None:
+                    raise OdooConnectorError("CRM writes require the host to grant odoo.crm.write or provide an approval callback.")
+                if not can_act and not self.approval_callback({"action": self.name, "values": values}):
                     raise OdooConnectorError("CRM lead creation was not approved.")
                 output = {"id": self.client.create_lead(values), "created": True}
+            elif self.action == "create_page":
+                published = bool(kwargs.get("published", False))
+                can_act = bool(self.capability_grant and self.capability_grant.allows("odoo.website.write"))
+                values = {key: kwargs.get(key) for key in ("title", "url", "summary", "sections", "published")}
+                if not can_act and self.approval_callback is None:
+                    raise OdooConnectorError("Website page creation requires odoo.website.write or a host approval callback.")
+                if not can_act and not self.approval_callback({"action": self.name, "values": values}):
+                    raise OdooConnectorError("Website page creation was not approved.")
+                output = {"id": self.client.create_page(
+                    kwargs["title"], kwargs["url"], kwargs["sections"], kwargs.get("summary", ""), published
+                ), "created": True, "published": published}
+            else:
+                published = bool(kwargs.get("published", False))
+                can_act = bool(self.capability_grant and self.capability_grant.allows("odoo.product.write"))
+                values = {key: kwargs.get(key) for key in ("name", "price", "description", "published")}
+                if not can_act and self.approval_callback is None:
+                    raise OdooConnectorError("Product creation requires odoo.product.write or a host approval callback.")
+                if not can_act and not self.approval_callback({"action": self.name, "values": values}):
+                    raise OdooConnectorError("Product creation was not approved.")
+                output = {"id": self.client.create_product(
+                    kwargs["name"], kwargs["price"], kwargs.get("description", ""), published
+                ), "created": True, "published": published}
             return ToolResult(success=True, output=output)
         except Exception as exc:
             return ToolResult(success=False, output=None, error=str(exc))
@@ -363,9 +450,11 @@ class OdooBuilderSkill(BaseSkill):
         self,
         client: Optional[OdooApiClient] = None,
         approval_callback: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        capability_grant: Optional[HostCapabilityGrant] = None,
     ) -> None:
         self.client = client
         self.approval_callback = approval_callback
+        self.capability_grant = capability_grant
 
     @property
     def skill_id(self) -> str:
@@ -382,8 +471,28 @@ class OdooBuilderSkill(BaseSkill):
     def get_tools(self) -> List[BaseTool]:
         return [
             WebsiteDraftTool(),
-            OdooActionTool("list_pages", self.client, self.approval_callback),
-            OdooActionTool("search_leads", self.client, self.approval_callback),
-            OdooActionTool("create_lead", self.client, self.approval_callback),
+            OdooActionTool("list_pages", self.client, self.approval_callback, self.capability_grant),
+            OdooActionTool("search_leads", self.client, self.approval_callback, self.capability_grant),
+            OdooActionTool("create_lead", self.client, self.approval_callback, self.capability_grant),
+            OdooActionTool("create_page", self.client, self.approval_callback, self.capability_grant),
+            OdooActionTool("create_product", self.client, self.approval_callback, self.capability_grant),
         ]
 
+
+def _build_safe_page_html(title: str, summary: str, sections: List[Dict[str, str]]) -> str:
+    if not isinstance(sections, list) or not 1 <= len(sections) <= 12:
+        raise ValueError("1-12 page sections are required.")
+    parts = [f"<main><h1>{html.escape(title)}</h1>"]
+    if summary:
+        parts.append(f"<p>{html.escape(summary)}</p>")
+    for section in sections:
+        if not isinstance(section, dict) or set(section) - {"heading", "body"}:
+            raise ValueError("Each page section must contain only heading and body.")
+        heading = _bounded_text(section.get("heading"), "heading", 160).strip()
+        body = _bounded_text(section.get("body"), "body", 4000).strip()
+        parts.append(
+            f"<section><h2>{html.escape(heading)}</h2>"
+            f"<p>{html.escape(body).replace(chr(10), '<br>')}</p></section>"
+        )
+    parts.append("</main>")
+    return "".join(parts)

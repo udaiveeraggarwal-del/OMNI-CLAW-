@@ -22,6 +22,7 @@ import uuid
 from omniagent.core.models import ToolResult
 from omniagent.core.router import BaseTool
 from omniagent.skills.base import BaseSkill
+from omniagent.security.capabilities import HostCapabilityGrant
 
 
 class BrowserPolicyError(RuntimeError):
@@ -37,6 +38,8 @@ class BrowserPolicy:
     allowed_domains: tuple[str, ...] = ()
     allowed_ports: tuple[int, ...] = (80, 443)
     allowed_methods: tuple[str, ...] = ("GET", "HEAD")
+    allow_state_changing_requests: bool = False
+    allow_unapproved_actions: bool = False
     max_sessions: int = 4
     session_ttl_seconds: int = 1800
     navigation_timeout_ms: int = 15000
@@ -52,8 +55,13 @@ class BrowserPolicy:
             raise ValueError("navigation_timeout_ms must be between 1000 and 120000")
         if not 100 <= self.max_read_chars <= 100000:
             raise ValueError("max_read_chars must be between 100 and 100000")
-        if not self.allowed_methods or any(method.upper() not in {"GET", "HEAD"} for method in self.allowed_methods):
-            raise ValueError("allowed_methods currently supports GET and HEAD only")
+        safe_methods = {"GET", "HEAD", "OPTIONS"}
+        write_methods = {"POST", "PUT", "PATCH", "DELETE"}
+        if not self.allowed_methods or any(
+            method.upper() not in safe_methods | (write_methods if self.allow_state_changing_requests else set())
+            for method in self.allowed_methods
+        ):
+            raise ValueError("allowed_methods contains an unsupported method or lacks write permission")
         normalized = []
         for domain in self.allowed_domains:
             host = domain.strip().lower().rstrip(".")
@@ -91,10 +99,12 @@ class BrowserSessionManager:
         network_security_context: Any = None,
         policy: BrowserPolicy | None = None,
         approval_callback: Optional[Callable[[Dict[str, str]], bool]] = None,
+        capability_grant: Optional[HostCapabilityGrant] = None,
     ) -> None:
         self.network_security_context = network_security_context
         self.policy = policy or BrowserPolicy()
         self.approval_callback = approval_callback
+        self.capability_grant = capability_grant
         self._playwright: Any = None
         self._browser: Any = None
         self._sessions: Dict[str, _BrowserSession] = {}
@@ -113,7 +123,8 @@ class BrowserSessionManager:
             if not proxy_url:
                 raise BrowserPolicyError("Privacy routing is enabled but no proxy URL is available.")
             return str(proxy_url), True
-        if not self.policy.allow_direct_egress:
+        host_allows_direct = bool(self.capability_grant and self.capability_grant.allows("network.direct"))
+        if not self.policy.allow_direct_egress and not host_allows_direct:
             raise BrowserPolicyError(
                 "Browser egress is disabled. Configure a ready privacy proxy or explicitly allow direct egress."
             )
@@ -180,7 +191,12 @@ class BrowserSessionManager:
                 request = route.request
                 try:
                     self._validate_url(request.url, proxied=proxied)
-                    if request.method.upper() not in self.policy.allowed_methods:
+                    allowed_methods = set(self.policy.allowed_methods)
+                    if self.capability_grant and self.capability_grant.allows("browser.write"):
+                        allowed_methods.update({"POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+                    elif self.policy.allow_state_changing_requests:
+                        allowed_methods.update({"POST", "PUT", "PATCH", "DELETE"})
+                    if request.method.upper() not in allowed_methods:
                         route.abort("blockedbyclient")
                     elif request.resource_type in self.policy.blocked_resource_types:
                         route.abort("blockedbyclient")
@@ -316,7 +332,9 @@ class BrowserSessionManager:
             proxy_url, _ = self._egress()
             session = self._get_session(session_id, expected_proxy_url=proxy_url)
             self._validate_selector(selector)
-            if self.approval_callback is None:
+            if self.approval_callback is None and not self.policy.allow_unapproved_actions and not (
+                self.capability_grant and self.capability_grant.allows("browser.write")
+            ):
                 raise BrowserPolicyError(
                     "Clicking is disabled until the host provides a human-approval callback."
                 )
@@ -325,7 +343,7 @@ class BrowserSessionManager:
                 "url": session.page.url,
                 "selector": selector,
             }
-            if not self.approval_callback(request):
+            if self.approval_callback is not None and not self.approval_callback(request):
                 raise BrowserPolicyError("The click was not approved.")
             session.page.locator(selector).click(timeout=5000)
             session.last_used = time.monotonic()
@@ -457,11 +475,13 @@ class BrowserOperateSkill(BaseSkill):
         policy: BrowserPolicy | None = None,
         approval_callback: Optional[Callable[[Dict[str, str]], bool]] = None,
         session_manager: BrowserSessionManager | None = None,
+        capability_grant: Optional[HostCapabilityGrant] = None,
     ) -> None:
         self.sessions = session_manager or BrowserSessionManager(
             network_security_context=network_security_context,
             policy=policy,
             approval_callback=approval_callback,
+            capability_grant=capability_grant,
         )
 
     @property
