@@ -218,4 +218,5 @@ Every requirement from the initial request, additions, and survey reports is inv
 - Added a versioned, namespaced skill contract and registry with action JSON Schema validation.
 - Added an offline SEO HTML audit and reviewable metadata / WebPage JSON-LD draft. These tools do not fetch pages or publish edits.
 - Added a Python and JavaScript code runner that fails closed without Docker and uses no network, a read-only root, reduced privileges, resource limits, and capped output.
-- Browser automation, Odoo and social-media connectors, and judge evaluation remain unimplemented.
+- Added a Playwright browser action with ephemeral contexts, request restrictions, private-address checks, bounded session/read sizes, and approval-gated clicks. Direct egress is disabled by default; proxy egress remains gated on M2 readiness.
+- Odoo and social-media connectors, and judge evaluation remain unimplemented.

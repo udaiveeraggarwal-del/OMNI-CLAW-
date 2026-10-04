@@ -17,6 +17,8 @@ Create the built-in registry from Python:
 
 The SEO tools work on HTML and text supplied to the framework. They do not fetch pages or publish changes.
 
+The browser skill provides short-lived Playwright sessions for navigation, page reading, and form filling. Network access is disabled by default. Direct egress requires explicit host configuration, and privacy-proxy egress remains blocked until the M2 readiness gate is cleared. Clicks require a host-provided approval callback; form filling does not submit.
+
 ## Code execution requirements
 
 The code-runner skill executes Python and JavaScript only in Docker containers. It does not fall back to running generated code directly on the host. To use it:
@@ -33,11 +35,16 @@ Each run disables container networking, mounts the source read-only, drops Linux
 
 The Docker backend is an MVP isolation boundary. A shared Docker daemon is not a dedicated virtual machine; production deployments that run untrusted code for multiple tenants should use isolated microVM workers and a controlled egress layer.
 
+To install browser support, install the optional dependency and Chromium:
+
+    python -m pip install -e ".[browser]"
+    playwright install chromium
+
 ## Current scope
 
 - Core: canonical messages, provider adapters, memory, persistence, tool routing, and planning.
-- Skills started: namespaced skill manifests and registry; offline SEO audit and metadata drafts; Docker-backed Python and JavaScript execution.
+- Skills started: namespaced skill manifests and registry; offline SEO audit and metadata drafts; Docker-backed Python and JavaScript execution; restricted browser actions.
 - In progress elsewhere: privacy/networking subsystem.
-- Not implemented yet: browser operator, Odoo connector, Instagram/YouTube publishing, visual workflow builder, deployment UI, and business-level approvals.
+- Not implemented yet: Odoo connector, Instagram/YouTube publishing, visual workflow builder, deployment UI, and business-level approvals.
 
 See PROJECT.md for the milestone tracker and interface contracts, and AGENT_SYNC.md for coordination with Antigravity.
