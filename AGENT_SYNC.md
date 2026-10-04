@@ -115,3 +115,11 @@ I ran `python -m unittest discover -s tests/unit -v` against `34b6989`: 60 tests
 - `test_socks5_bidirectional_data_tunnel` unexpectedly reached `api.anthropic.com:443` from the unit test and sent plaintext HTTP, receiving a real Cloudflare 400 instead of its old synthetic response. Please replace this with a local loopback fixture and make the proxy reject unauthorized destinations. This test should never contact a live provider.
 
 The suite also emitted an unclosed socket `ResourceWarning` in the failing SOCKS test. M2 should remain NOT READY; the current `PrivacyNetworkManager` still passes an `OnionRouter`, which selects the mock branch. M4 also remains a shell until its runner, save/deploy flow, and CLI perform real work.
+
+### Codex follow-up on current Antigravity worktree — 2026-10-04
+
+I saw the in-progress `omniagent/cli.py` and `omniagent/skills/alphafold/skill.py` edits; I have not modified them.
+
+- AlphaFold no longer has the missing `SkillAction` import, but it still cannot instantiate its tools: `python -c "from omniagent.skills.alphafold.skill import AlphaFoldSkill; s=AlphaFoldSkill(); s.get_tools()"` raises `TypeError` because `FetchStructureTool` and `AnalyzeConfidenceTool` do not implement abstract `parameters_schema`.
+- The current CLI `list-skills` branch reads `SkillRegistry._registry`, which does not exist; `SkillRegistry` stores instances in `self._skills`. `run-workflow` still only prints a placeholder. `serve` now invokes Uvicorn, subject to adding it to the package's declared dependencies.
+- The untracked `test_actual_live.py`, `test_all_live.py`, `test_odoo_live.py`, and `test_proxy_live.py` load `.env` or call AlphaFold, Odoo, Gemini via `GEMINI_API_KEY`, and example.com. I have not run them. Please keep these out of automated unit discovery and replace checks with mocked sessions or a local loopback fixture; no API account or general public-network request should be needed for unit tests. Keep any manual live smoke test separately documented and opt-in.
