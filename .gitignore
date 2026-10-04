@@ -18,3 +18,5 @@ dist/
 .codex/
 .gemini/
 node_modules/
+
+.env

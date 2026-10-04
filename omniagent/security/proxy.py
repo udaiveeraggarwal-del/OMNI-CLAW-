@@ -11,6 +11,7 @@ Provides an embedded loopback SOCKS5 server for OmniAgent that:
 from __future__ import annotations
 
 import socket
+import select
 import threading
 import time
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -62,6 +63,7 @@ class SOCKS5Server:
     """
     Embedded RFC 1928 SOCKS5 Proxy Server binding to loopback.
     """
+    PRODUCTION_EGRESS = True
 
     def __init__(
         self,
@@ -211,26 +213,48 @@ class SOCKS5Server:
             sock.sendall(bnd_reply)
 
             # 3. Tunneling Data
-            data = sock.recv(4096)
-            if data:
-                response: Optional[bytes] = None
-
-                if self.custom_handler:
-                    response = self.custom_handler(data, target_host, target_port)
-                elif self.onion_router:
-                    response = self.onion_router.relay_request(data, target_host, target_port)
-                else:
-                    # Default mock HTTP tunneling response
-                    content = f"OmniAgent Proxy OK: {target_host}:{target_port}".encode("utf-8")
-                    headers = (
-                        f"HTTP/1.1 200 OK\r\n"
-                        f"Content-Type: text/plain\r\n"
-                        f"Content-Length: {len(content)}\r\n\r\n"
-                    ).encode("utf-8")
-                    response = headers + content
-
-                if response:
-                    sock.sendall(response)
+            if self.custom_handler or self.onion_router:
+                # Custom handler/Onion Router mock path
+                data = sock.recv(4096)
+                if data:
+                    response: Optional[bytes] = None
+                    if self.custom_handler:
+                        response = self.custom_handler(data, target_host, target_port)
+                    elif self.onion_router:
+                        response = self.onion_router.relay_request(data, target_host, target_port)
+                    if response:
+                        sock.sendall(response)
+            else:
+                # REAL Bidirectional TCP Tunnel
+                remote_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    remote_sock.settimeout(10.0)
+                    remote_sock.connect((target_host, target_port))
+                    
+                    # Remove timeout for full-duplex blocking relay
+                    sock.settimeout(None)
+                    remote_sock.settimeout(None)
+                    
+                    sockets = [sock, remote_sock]
+                    while True:
+                        readable, _, err = select.select(sockets, [], sockets, 30.0)
+                        if err:
+                            break
+                        if not readable:
+                            continue
+                            
+                        for s in readable:
+                            other_s = remote_sock if s is sock else sock
+                            try:
+                                data = s.recv(8192)
+                                if not data:
+                                    # Connection closed by one side
+                                    return
+                                other_s.sendall(data)
+                            except Exception:
+                                return
+                finally:
+                    remote_sock.close()
 
         except Exception:
             pass

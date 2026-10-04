@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMNI-CLAW Visual Workflow Builder</title>
+    <style>
+        body { background-color: #121212; color: #ffffff; font-family: sans-serif; margin: 0; }
+        .toolbar { padding: 10px; background-color: #1e1e1e; border-bottom: 1px solid #333; }
+        .canvas { width: 100vw; height: 100vh; position: relative; overflow: hidden; }
+        .node { position: absolute; background-color: #2c2c2c; border: 1px solid #444; border-radius: 5px; padding: 10px; cursor: move; }
+        .modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #2c2c2c; padding: 20px; border: 1px solid #444; z-index: 1000; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button onclick="document.getElementById('api-modal').style.display='block'">API Settings</button>
+    </div>
+    <div class="canvas" id="canvas">
+        <div class="node" style="top: 100px; left: 100px;">Node 1</div>
+        <div class="node" style="top: 200px; left: 300px;">Node 2</div>
+        <!-- SVG wires would go here -->
+    </div>
+    
+    <div class="modal" id="api-modal">
+        <h3>API Key Settings</h3>
+        <input type="text" placeholder="Enter API Key" />
+        <button onclick="document.getElementById('api-modal').style.display='none'">Save</button>
+    </div>
+</body>
+</html>
