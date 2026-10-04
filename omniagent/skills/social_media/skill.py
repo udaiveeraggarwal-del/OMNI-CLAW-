@@ -8,6 +8,8 @@ the account owner's OAuth grants; no account is contacted by default.
 from __future__ import annotations
 
 import re
+import ipaddress
+import socket
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
@@ -220,7 +222,22 @@ def _is_safe_media_url(value: Any) -> bool:
     if not isinstance(value, str) or len(value) > 2048:
         return False
     parsed = urlsplit(value)
-    return parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username and not parsed.password
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return False
+    host = parsed.hostname.lower().rstrip(".")
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test", ".invalid")):
+        return False
+    try:
+        addresses = {str(ipaddress.ip_address(host))}
+    except ValueError:
+        try:
+            addresses = {
+                entry[4][0]
+                for entry in socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
+            }
+        except OSError:
+            return False
+    return bool(addresses) and all(ipaddress.ip_address(address).is_global for address in addresses)
 
 
 def _validate_draft(platform: str, post: Any) -> Dict[str, Any]:

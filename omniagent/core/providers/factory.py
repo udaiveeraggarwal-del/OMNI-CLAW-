@@ -11,6 +11,8 @@ from omniagent.core.providers.base import BaseLLMProvider
 from omniagent.core.providers.openai_provider import OpenAIProvider, MockOpenAIProvider
 from omniagent.core.providers.anthropic_provider import AnthropicProvider, MockAnthropicProvider
 from omniagent.core.providers.gemini_provider import GeminiProvider, MockGeminiProvider
+from omniagent.core.providers.antigravity_cli import AntigravityCliProvider
+from omniagent.core.providers.pool import ProviderPool, ProviderRoute
 
 
 class ProviderFactory:
@@ -20,6 +22,7 @@ class ProviderFactory:
         "openai": OpenAIProvider,
         "anthropic": AnthropicProvider,
         "gemini": GeminiProvider,
+        "antigravity": AntigravityCliProvider,
     }
 
     _MOCK_REGISTRY: Dict[str, Type[BaseLLMProvider]] = {
@@ -35,6 +38,7 @@ class ProviderFactory:
         "google": "gemini",
         "vertex": "gemini",
         "gemini-pro": "gemini",
+        "agy": "antigravity",
     }
 
     @classmethod
@@ -107,4 +111,54 @@ class ProviderFactory:
             model=model,
             mock=True,
             **kwargs,
+        )
+
+    @classmethod
+    def create_pool(
+        cls,
+        route_configs: List[Dict[str, Any]],
+        *,
+        allowed_cost_tiers=frozenset({"free"}),
+        max_attempts: int = 4,
+        default_cooldown_seconds: int = 60,
+        max_cooldown_seconds: int = 900,
+        failover_on_server_errors: bool = False,
+    ) -> ProviderPool:
+        """Build a route pool from host-supplied credentials and route policies.
+
+        A provider route can specify ``provider``, ``model``, ``api_key``,
+        ``priority``, ``cost_tier``, ``requests_per_minute``,
+        ``requests_per_day``, and an ``options`` mapping. Keys remain inside
+        the provider instance and never appear in pool status data.
+        """
+        routes: List[ProviderRoute] = []
+        for index, config in enumerate(route_configs):
+            if not isinstance(config, dict) or not config.get("provider"):
+                raise ValueError("Each provider route requires a provider name.")
+            options = config.get("options") or {}
+            if not isinstance(options, dict):
+                raise ValueError("Provider route options must be a mapping.")
+            provider = cls.create(
+                provider_name=str(config["provider"]),
+                api_key=str(config.get("api_key", "")),
+                model=config.get("model"),
+                mock=bool(config.get("mock", False)),
+                **options,
+            )
+            routes.append(ProviderRoute(
+                route_id=str(config.get("route_id") or f"{provider.provider_name}-{index + 1}"),
+                provider=provider,
+                priority=int(config.get("priority", index)),
+                cost_tier=str(config.get("cost_tier", "free")),
+                enabled=bool(config.get("enabled", True)),
+                requests_per_minute=config.get("requests_per_minute"),
+                requests_per_day=config.get("requests_per_day"),
+            ))
+        return ProviderPool(
+            routes,
+            allowed_cost_tiers=frozenset(allowed_cost_tiers),
+            max_attempts=max_attempts,
+            default_cooldown_seconds=default_cooldown_seconds,
+            max_cooldown_seconds=max_cooldown_seconds,
+            failover_on_server_errors=failover_on_server_errors,
         )

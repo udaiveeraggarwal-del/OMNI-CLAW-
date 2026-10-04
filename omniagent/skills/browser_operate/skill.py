@@ -69,6 +69,7 @@ class BrowserPolicy:
                 raise ValueError(f"invalid allowed domain: {domain!r}")
             normalized.append(host.lstrip("."))
         object.__setattr__(self, "allowed_domains", tuple(normalized))
+        object.__setattr__(self, "allowed_methods", tuple(method.upper() for method in self.allowed_methods))
         object.__setattr__(self, "allowed_ports", tuple(int(port) for port in self.allowed_ports))
         if any(not 1 <= port <= 65535 for port in self.allowed_ports):
             raise ValueError("allowed_ports must contain valid TCP port numbers")

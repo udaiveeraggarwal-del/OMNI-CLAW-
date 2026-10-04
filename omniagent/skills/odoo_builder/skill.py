@@ -11,6 +11,7 @@ import ipaddress
 import json
 import re
 import socket
+import uuid
 from typing import Any, Callable, Dict, List, Optional, Protocol
 from urllib.parse import urlsplit
 
@@ -226,7 +227,7 @@ class OdooJson2Client:
         if not title or not re.fullmatch(r"/[A-Za-z0-9/_-]{1,240}", url) or "//" in url:
             raise ValueError("title or relative website URL is invalid.")
         page_html = _build_safe_page_html(title, summary, sections)
-        key = f"omniagent.generated_{re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:60]}_{__import__('uuid').uuid4().hex[:10]}"
+        key = f"omniagent.generated_{re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:60]}_{uuid.uuid4().hex[:10]}"
         # Odoo 19 docs define website.page records using key, url, type, arch,
         # and is_published. Tenant-specific custom fields are intentionally omitted.
         result = self._call("website.page", "create", {"vals_list": [{
@@ -256,11 +257,11 @@ class OdooJson2Client:
 
 
 def _created_id(result: Any) -> Any:
-        if isinstance(result, (str, int)) and not isinstance(result, bool):
-            return result
-        if isinstance(result, list) and len(result) == 1:
-            return result[0]
-        raise OdooConnectorError("Odoo returned an unexpected create result.")
+    if isinstance(result, (str, int)) and not isinstance(result, bool):
+        return result
+    if isinstance(result, list) and len(result) == 1:
+        return result[0]
+    raise OdooConnectorError("Odoo returned an unexpected create result.")
 
 
 def _bounded_text(value: Any, name: str, maximum: int) -> str:
@@ -348,9 +349,9 @@ class OdooActionTool(BaseTool):
         return {
             "list_pages": "odoo.website_list_pages",
             "search_leads": "odoo.crm_search_leads",
-        "create_lead": "odoo.crm_create_lead",
-        "create_page": "odoo.website_create_page",
-        "create_product": "odoo.product_create",
+            "create_lead": "odoo.crm_create_lead",
+            "create_page": "odoo.website_create_page",
+            "create_product": "odoo.product_create",
         }[self.action]
 
     @property
@@ -358,9 +359,9 @@ class OdooActionTool(BaseTool):
         return {
             "list_pages": "List existing Odoo website pages; this action is read-only.",
             "search_leads": "Search Odoo CRM leads by name, email, or phone; this action is read-only.",
-        "create_lead": "Create one CRM lead after a host-provided approval callback approves the exact values.",
-        "create_page": "Create an Odoo website page with sanitized content; the host grant controls whether it is published.",
-        "create_product": "Create an Odoo product template and optionally publish it after host authorization.",
+            "create_lead": "Create one CRM lead under host-granted or callback-approved authority.",
+            "create_page": "Create an Odoo website page with sanitized content; host authority controls publication.",
+            "create_product": "Create an Odoo product template and optionally publish it under host authority.",
         }[self.action]
 
     @property
@@ -466,7 +467,7 @@ class OdooBuilderSkill(BaseSkill):
 
     @property
     def description(self) -> str:
-        return "Draft Odoo website content and perform bounded, approval-controlled Odoo CRM operations."
+        return "Build Odoo pages and products, sync CRM leads, and publish changes under host-granted authority."
 
     def get_tools(self) -> List[BaseTool]:
         return [
