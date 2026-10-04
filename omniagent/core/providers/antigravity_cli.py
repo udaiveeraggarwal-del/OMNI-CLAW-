@@ -1,6 +1,6 @@
 """Subscription-aware bridge to Google's documented Antigravity CLI.
 
-This adapter invokes the official ``agy -p`` headless interface; it does not
+This adapter invokes the official ``agy`` headless interface; it does not
 read, copy, or emulate Google OAuth tokens. The caller must already have
 authenticated with Antigravity on this machine. Its model-visible tools are
 disabled; canonical OmniAgent tool calls are returned as structured output.
@@ -96,14 +96,16 @@ class AntigravityCliProvider(BaseLLMProvider):
         usage = raw_response.get("usage") or {}
         if not isinstance(usage, dict):
             usage = {}
+        prompt_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
+        completion_tokens = int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
         return LLMResponse(
             content=str(response.get("content", "")),
             tool_calls=calls,
             finish_reason="tool_calls" if calls else "stop",
             usage=TokenUsage(
-                prompt_tokens=int(usage.get("prompt_tokens") or 0),
-                completion_tokens=int(usage.get("completion_tokens") or 0),
-                total_tokens=int(usage.get("total_tokens") or 0),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=int(usage.get("total_tokens") or (prompt_tokens + completion_tokens)),
             ),
             model=self.model or str(raw_response.get("model") or "antigravity-default"),
             provider=self.provider_name,
@@ -134,9 +136,9 @@ class AntigravityCliProvider(BaseLLMProvider):
             schema_path.write_text(json.dumps(self._output_schema(tools)), encoding="utf-8")
             command = [
                 self.executable,
-                "-p", prompt,
+                "--input-format", "stream-json",
+                "--output-format", "stream-json",
                 "--agent", "omniagent-model",
-                "--output-format", "json",
                 "--json-schema", str(schema_path),
                 "--print-timeout", f"{self.timeout_seconds}s",
                 "--sandbox",
@@ -149,7 +151,7 @@ class AntigravityCliProvider(BaseLLMProvider):
                     command,
                     cwd=root,
                     env=env,
-                    stdin=subprocess.DEVNULL,
+                    input=json.dumps({"event": "user", "message": {"content": prompt}}, ensure_ascii=False) + "\n",
                     capture_output=True,
                     text=True,
                     timeout=self.timeout_seconds + 15,
@@ -165,8 +167,8 @@ class AntigravityCliProvider(BaseLLMProvider):
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
             try:
-                envelope = json.loads(stdout)
-            except ValueError:
+                envelope = _last_result_event(stdout)
+            except (ValueError, TypeError):
                 text = (stdout + "\n" + stderr).casefold()
                 if any(term in text for term in ("quota", "rate limit", "resource exhausted", "too many requests")):
                     raise AntigravityCliError("Antigravity subscription quota or rate limit reached.") from None
@@ -194,6 +196,10 @@ class AntigravityCliProvider(BaseLLMProvider):
 
     @staticmethod
     def _output_schema(tools: Optional[List[ToolDefinition]]) -> Dict[str, Any]:
+        name_schema: Dict[str, Any] = {"type": "string"}
+        tool_names = [tool.name for tool in (tools or [])]
+        if tool_names:
+            name_schema["enum"] = tool_names
         properties: Dict[str, Any] = {
             "content": {"type": "string"},
             "tool_calls": {
@@ -202,7 +208,7 @@ class AntigravityCliProvider(BaseLLMProvider):
                     "type": "object",
                     "properties": {
                         "id": {"type": "string"},
-                        "name": {"type": "string", "enum": [tool.name for tool in (tools or [])]},
+                        "name": name_schema,
                         "arguments": {"type": "object"},
                     },
                     "required": ["name", "arguments"],
@@ -229,3 +235,23 @@ def _cli_environment() -> Dict[str, str]:
     }
     return {key: value for key, value in os.environ.items() if key.upper() in allowed}
 
+
+def _last_result_event(stdout: str) -> Dict[str, Any]:
+    """Extract the terminal result envelope from the documented NDJSON stream."""
+    result = None
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if isinstance(event, dict) and event.get("event") == "result":
+            payload = event.get("result")
+            if isinstance(payload, dict):
+                result = payload
+    if result is None:
+        raise ValueError("Antigravity stream did not contain a result event.")
+    # The CLI's enforced schema is returned in structured_output. Prefer it over
+    # reparsing response text, but retain the ordinary response for older CLI builds.
+    if isinstance(result.get("structured_output"), dict):
+        result = dict(result)
+        result["response"] = result["structured_output"]
+    return result
