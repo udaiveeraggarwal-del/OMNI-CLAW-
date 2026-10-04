@@ -72,6 +72,7 @@ class _BrowserSession:
     page: Any
     created_at: float
     last_used: float
+    proxy_url: Optional[str]
 
 
 class BrowserSessionManager:
@@ -83,7 +84,6 @@ class BrowserSessionManager:
         ".internal",
         ".test",
         ".invalid",
-        ".onion",
     )
 
     def __init__(
@@ -213,6 +213,7 @@ class BrowserSessionManager:
                 page=page,
                 created_at=now,
                 last_used=now,
+                proxy_url=proxy_url,
             )
             return {"session_id": session_id, "privacy_proxy": proxied}
 
@@ -233,7 +234,9 @@ class BrowserSessionManager:
 
         host = parsed.hostname.lower().rstrip(".")
         if host == "localhost" or any(host.endswith(suffix) for suffix in self._BLOCKED_SUFFIXES):
-            raise BrowserPolicyError("Local, special-use, and onion hostnames are blocked by this browser policy.")
+            raise BrowserPolicyError("Local and special-use hostnames are blocked by this browser policy.")
+        if host.endswith(".onion") and not proxied:
+            raise BrowserPolicyError("Onion hostnames require an approved privacy proxy.")
         effective_port = port or (443 if parsed.scheme.lower() == "https" else 80)
         if effective_port not in self.policy.allowed_ports:
             raise BrowserPolicyError(f"Port {effective_port} is not allowed.")
@@ -264,7 +267,7 @@ class BrowserSessionManager:
         with self._lock:
             proxy_url, proxied = self._egress()
             self._validate_url(url, proxied=proxied)
-            session = self._get_session(session_id)
+            session = self._get_session(session_id, expected_proxy_url=proxy_url)
             response = session.page.goto(
                 url,
                 wait_until="domcontentloaded",
@@ -280,8 +283,8 @@ class BrowserSessionManager:
 
     def read_page(self, session_id: str, max_chars: int | None = None) -> Dict[str, Any]:
         with self._lock:
-            self._egress()
-            session = self._get_session(session_id)
+            proxy_url, _ = self._egress()
+            session = self._get_session(session_id, expected_proxy_url=proxy_url)
             limit = min(max_chars or self.policy.max_read_chars, self.policy.max_read_chars)
             text = session.page.locator("body").inner_text(timeout=5000)
             session.last_used = time.monotonic()
@@ -294,8 +297,8 @@ class BrowserSessionManager:
 
     def fill(self, session_id: str, selector: str, value: str) -> Dict[str, Any]:
         with self._lock:
-            self._egress()
-            session = self._get_session(session_id)
+            proxy_url, _ = self._egress()
+            session = self._get_session(session_id, expected_proxy_url=proxy_url)
             self._validate_selector(selector)
             if not isinstance(value, str) or len(value) > 10000:
                 raise BrowserPolicyError("Form values must be text no longer than 10000 characters.")
@@ -310,8 +313,8 @@ class BrowserSessionManager:
 
     def click(self, session_id: str, selector: str) -> Dict[str, Any]:
         with self._lock:
-            self._egress()
-            session = self._get_session(session_id)
+            proxy_url, _ = self._egress()
+            session = self._get_session(session_id, expected_proxy_url=proxy_url)
             self._validate_selector(selector)
             if self.approval_callback is None:
                 raise BrowserPolicyError(
@@ -357,13 +360,21 @@ class BrowserSessionManager:
                     pass
                 self._playwright = None
 
-    def _get_session(self, session_id: str) -> _BrowserSession:
+    def _get_session(self, session_id: str, expected_proxy_url: Optional[str]) -> _BrowserSession:
         if not isinstance(session_id, str) or not re.fullmatch(r"[0-9a-f]{32}", session_id):
             raise BrowserPolicyError("A valid browser session_id is required.")
         self._cleanup_expired()
         session = self._sessions.get(session_id)
         if session is None:
             raise BrowserPolicyError("Browser session is missing or has expired.")
+        if session.proxy_url != expected_proxy_url:
+            self._sessions.pop(session_id, None)
+            try:
+                session.context.close()
+            finally:
+                raise BrowserPolicyError(
+                    "Network privacy settings changed; the previous browser session was closed."
+                )
         session.last_used = time.monotonic()
         return session
 
