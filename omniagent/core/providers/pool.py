@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import email.utils
 import threading
 import time
-from typing import Any, Dict, FrozenSet, List, Optional
+from collections import deque
+from typing import Any, Deque, Dict, FrozenSet, List, Optional
 
 import requests
 
@@ -24,12 +25,18 @@ class ProviderRoute:
     priority: int = 100
     cost_tier: str = "free"
     enabled: bool = True
+    requests_per_minute: Optional[int] = None
+    requests_per_day: Optional[int] = None
 
     def __post_init__(self) -> None:
         if not self.route_id or len(self.route_id) > 100:
             raise ValueError("route_id must be non-empty text up to 100 characters.")
         if self.cost_tier not in {"free", "prepaid", "paid"}:
             raise ValueError("cost_tier must be free, prepaid, or paid.")
+        if self.requests_per_minute is not None and not 1 <= self.requests_per_minute <= 1_000_000:
+            raise ValueError("requests_per_minute must be between 1 and 1,000,000.")
+        if self.requests_per_day is not None and not 1 <= self.requests_per_day <= 10_000_000:
+            raise ValueError("requests_per_day must be between 1 and 10,000,000.")
 
 
 class ProviderPoolError(RuntimeError):
@@ -76,6 +83,8 @@ class ProviderPool(BaseLLMProvider):
         self._cooldowns: Dict[str, float] = {}
         self._failures: Dict[str, int] = {}
         self._last_errors: Dict[str, str] = {}
+        self._minute_windows: Dict[str, Deque[float]] = {route.route_id: deque() for route in self.routes}
+        self._daily_counts: Dict[str, tuple[date, int]] = {}
         self._lock = threading.RLock()
 
     @property
@@ -131,14 +140,20 @@ class ProviderPool(BaseLLMProvider):
         **kwargs: Any,
     ) -> LLMResponse:
         configured = self._eligible_routes()
-        now = time.monotonic()
-        candidates = [route for route in configured if self._cooldown_remaining(route.route_id, now) <= 0]
+        candidates = self._reserve_available_routes(configured)
         if not candidates:
-            nearest = min(self._cooldown_remaining(route.route_id, now) for route in configured)
-            raise ProviderPoolError(f"All allowed provider routes are cooling down; retry in about {max(1, int(nearest))} seconds.")
+            status = self.status()
+            remaining = [entry["cooldown_seconds"] for entry in status if entry["eligible_by_budget"]]
+            nearest = min(remaining) if remaining else 0
+            raise ProviderPoolError(
+                "No provider route has quota available under the configured local budget."
+                + (f" Earliest provider cooldown ends in about {max(1, int(nearest))} seconds." if nearest else "")
+            )
         attempted: List[str] = []
         errors: List[str] = []
         for route in candidates[: self.max_attempts]:
+            if not self._reserve_route(route):
+                continue
             attempted.append(route.route_id)
             try:
                 response = route.provider.generate(
@@ -183,6 +198,48 @@ class ProviderPool(BaseLLMProvider):
             return False, retry_after, True
         return False, None, False
 
+    def _reserve_available_routes(self, configured: List[ProviderRoute]) -> List[ProviderRoute]:
+        """List candidates under local ceilings; reservation occurs just before use."""
+        now = time.monotonic()
+        today = datetime.now(timezone.utc).date()
+        candidates: List[ProviderRoute] = []
+        with self._lock:
+            for route in configured:
+                if self._cooldowns.get(route.route_id, 0.0) > now:
+                    continue
+                minute_window = self._minute_windows.setdefault(route.route_id, deque())
+                while minute_window and minute_window[0] <= now - 60:
+                    minute_window.popleft()
+                daily_date, daily_count = self._daily_counts.get(route.route_id, (today, 0))
+                if daily_date != today:
+                    daily_date, daily_count = today, 0
+                if route.requests_per_minute is not None and len(minute_window) >= route.requests_per_minute:
+                    continue
+                if route.requests_per_day is not None and daily_count >= route.requests_per_day:
+                    continue
+                candidates.append(route)
+            return candidates
+
+    def _reserve_route(self, route: ProviderRoute) -> bool:
+        now = time.monotonic()
+        today = datetime.now(timezone.utc).date()
+        with self._lock:
+            if self._cooldowns.get(route.route_id, 0.0) > now:
+                return False
+            minute_window = self._minute_windows.setdefault(route.route_id, deque())
+            while minute_window and minute_window[0] <= now - 60:
+                minute_window.popleft()
+            daily_date, daily_count = self._daily_counts.get(route.route_id, (today, 0))
+            if daily_date != today:
+                daily_date, daily_count = today, 0
+            if route.requests_per_minute is not None and len(minute_window) >= route.requests_per_minute:
+                return False
+            if route.requests_per_day is not None and daily_count >= route.requests_per_day:
+                return False
+            minute_window.append(now)
+            self._daily_counts[route.route_id] = (today, daily_count + 1)
+            return True
+
     @staticmethod
     def _safe_reason(exc: Exception) -> str:
         response = getattr(exc, "response", None)
@@ -205,11 +262,20 @@ class ProviderPool(BaseLLMProvider):
             self._cooldowns.clear()
             self._failures.clear()
             self._last_errors.clear()
+            self._minute_windows = {route.route_id: deque() for route in self.routes}
+            self._daily_counts.clear()
 
     def status(self) -> List[Dict[str, Any]]:
-        now = time.monotonic()
         result = []
         for route in self.routes:
+            with self._lock:
+                minute_window = self._minute_windows.setdefault(route.route_id, deque())
+                now = time.monotonic()
+                while minute_window and minute_window[0] <= now - 60:
+                    minute_window.popleft()
+                daily_date, daily_count = self._daily_counts.get(route.route_id, (datetime.now(timezone.utc).date(), 0))
+                if daily_date != datetime.now(timezone.utc).date():
+                    daily_count = 0
             result.append({
                 "route_id": route.route_id,
                 "provider": route.provider.provider_name,
@@ -218,6 +284,8 @@ class ProviderPool(BaseLLMProvider):
                 "enabled": route.enabled,
                 "eligible_by_budget": route.cost_tier in self.allowed_cost_tiers,
                 "cooldown_seconds": round(self._cooldown_remaining(route.route_id, now), 1),
+                "requests_last_minute": len(minute_window),
+                "requests_today": daily_count,
                 "recent_failure": self._last_errors.get(route.route_id),
             })
         return result
@@ -236,4 +304,3 @@ def _parse_retry_after(value: Any) -> Optional[int]:
             return max(1, min(int((moment - datetime.now(timezone.utc)).total_seconds()), 86400))
         except (TypeError, ValueError, OverflowError):
             return None
-

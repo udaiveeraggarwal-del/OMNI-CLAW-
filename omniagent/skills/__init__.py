@@ -21,12 +21,20 @@ def create_builtin_registry(
 ) -> SkillRegistry:
     """Create a fresh registry; external accounts and host access are injected by the host."""
     registry = SkillRegistry(tool_registry=tool_registry)
-    registry.register(BrowserOperateSkill())
+    registry.register(BrowserOperateSkill(capability_grant=host_grant))
     registry.register(SeoOptimizerSkill())
     registry.register(CodeRunnerSkill())
     registry.register(HostControlSkill(grant=host_grant, desktop_backend=desktop_backend))
-    registry.register(OdooBuilderSkill(client=odoo_client, approval_callback=odoo_approval_callback))
-    registry.register(SocialMediaSkill(adapter=social_adapter, approval_callback=social_approval_callback))
+    registry.register(OdooBuilderSkill(
+        client=odoo_client,
+        approval_callback=odoo_approval_callback,
+        capability_grant=host_grant,
+    ))
+    registry.register(SocialMediaSkill(
+        adapter=social_adapter,
+        approval_callback=social_approval_callback,
+        capability_grant=host_grant,
+    ))
     return registry
 
 

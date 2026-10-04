@@ -8,6 +8,7 @@ from omniagent.core.providers.anthropic_provider import AnthropicProvider, MockA
 from omniagent.core.providers.gemini_provider import GeminiProvider, MockGeminiProvider
 from omniagent.core.providers.factory import ProviderFactory
 from omniagent.core.providers.pool import ProviderPool, ProviderPoolError, ProviderRoute
+from omniagent.core.providers.antigravity_cli import AntigravityCliProvider
 
 __all__ = [
     "BaseLLMProvider",
@@ -21,4 +22,5 @@ __all__ = [
     "ProviderPool",
     "ProviderPoolError",
     "ProviderRoute",
+    "AntigravityCliProvider",
 ]
